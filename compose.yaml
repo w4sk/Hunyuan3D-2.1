@@ -29,11 +29,16 @@ services:
     image: hunyuan3d21:dev
     container_name: hy3d21
     working_dir: /workspace/Hunyuan3D-2.1
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+      # Set to 1 when weights are pre-staged on a shared/NFS cache.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
     volumes:
       # Bind-mount the repo so source edits are live in the container.
       - .:/workspace/Hunyuan3D-2.1
-      # Persist Hugging Face model cache on the host (shared across projects).
-      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+      # Model weights. HF_CACHE_DIR lets prod point this at an NFS/NAS mount
+      # (e.g. /mnt/ai-models/huggingface); defaults to the local HF cache.
+      - ${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/root/.cache/huggingface
     ports:
       - "7860:7860"
     stdin_open: true
