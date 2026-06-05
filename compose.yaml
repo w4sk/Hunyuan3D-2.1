@@ -1,0 +1,48 @@
+# Hunyuan3D-2.1 development environment.
+#
+# Quick start:
+#   docker compose build              # build the image (first time, ~30-45 min)
+#   docker compose up -d              # start the container in the background
+#   docker compose exec hy3d21 bash   # open a shell inside it
+#   docker compose down               # stop & remove the container
+#
+# One-shot interactive shell (no detached container):
+#   docker compose run --rm hy3d21 bash
+
+services:
+  # Static viewer for the generated .glb files. Independent of hy3d21 (no GPU
+  # needed). Open http://localhost:7861/viewer/ in a browser.
+  viewer:
+    image: nginx:alpine
+    container_name: hy3d21-viewer
+    ports:
+      - "7861:80"
+    volumes:
+      - .:/usr/share/nginx/html:ro
+      - ./viewer/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+  hy3d21:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: hunyuan3d21:dev
+    container_name: hy3d21
+    working_dir: /workspace/Hunyuan3D-2.1
+    volumes:
+      # Bind-mount the repo so source edits are live in the container.
+      - .:/workspace/Hunyuan3D-2.1
+      # Persist Hugging Face model cache on the host (shared across projects).
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "7860:7860"
+    stdin_open: true
+    tty: true
+    # GPU access via nvidia-container-toolkit (already installed on host).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

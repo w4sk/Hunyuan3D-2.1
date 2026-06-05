@@ -52,8 +52,8 @@ psutil==6.0.0
 # GPU Computing (requires CUDA)
 cupy-cuda12x==13.4.1
 
-# Blender
-bpy==4.0
+# Blender (bpy 4.0 cp310 wheels were removed from PyPI; 4.2.0 requires Python 3.11)
+bpy==4.2.0
 
 # ONNX Runtime
 onnxruntime==1.16.3
@@ -65,4 +65,7 @@ timm
 pythreejs
 torchdiffeq
 deepspeed
+
+# Required by HunyuanDiT's T5 tokenizer (used by text_to_3d.py)
+sentencepiece
 

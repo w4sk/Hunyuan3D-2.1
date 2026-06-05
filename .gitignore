@@ -183,3 +183,6 @@ demo_untextured.glb
 white_mesh_remesh.obj
 hy3dpaint/ckpt/
 
+# All generated runs from demo.py / text_to_3d.py go here
+outputs/
+

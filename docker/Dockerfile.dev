@@ -1,0 +1,87 @@
+# Development Dockerfile for Hunyuan3D-2.1
+# Bakes only the heavy/stable dependencies (system packages, conda, torch, pip deps)
+# into the image. Source code, CUDA extension builds, and model weights live on a
+# bind-mounted host directory so iteration is fast.
+#
+# Build:   docker build -t hunyuan3d21:dev -f docker/Dockerfile.dev .
+# Run:     docker run -it --gpus all \
+#            -v $(pwd):/workspace/Hunyuan3D-2.1 \
+#            -p 7860:7860 --name hy3d21 hunyuan3d21:dev
+
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+LABEL name="hunyuan3d21-dev" maintainer="hunyuan3d21"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYOPENGL_PLATFORM=egl
+
+# System packages: build tools, OpenGL/EGL stack, geometry libs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential git wget vim unzip git-lfs curl cmake pkg-config \
+        libegl1-mesa-dev libglib2.0-0 \
+        libglvnd0 libgl1 libglx0 libegl1 libgles2 libglvnd-dev \
+        libgl1-mesa-dev libgles2-mesa-dev mesa-utils-extra \
+        libxrender1 libxi6 libxkbcommon-x11-0 libsm6 libxext6 libxrender-dev \
+        libeigen3-dev libcgal-dev \
+        python3-dev python3-setuptools \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# CUDA env
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+# Pascal through Hopper; matches the official Dockerfile
+ENV TORCH_CUDA_ARCH_LIST="6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0"
+
+# Miniconda
+RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p /opt/miniconda3 && \
+    rm /tmp/miniconda.sh
+ENV PATH="/opt/miniconda3/bin:${PATH}"
+
+RUN conda init bash && \
+    conda tos accept --channel https://repo.anaconda.com/pkgs/main && \
+    conda tos accept --channel https://repo.anaconda.com/pkgs/r && \
+    conda config --set always_yes true && \
+    conda create -n hunyuan3d21 python=3.11
+
+ENV PATH="/opt/miniconda3/envs/hunyuan3d21/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/opt/miniconda3/envs/hunyuan3d21/lib:${LD_LIBRARY_PATH}"
+
+RUN conda install -n hunyuan3d21 Ninja && \
+    conda install -n hunyuan3d21 cuda -c nvidia/label/cuda-12.4.1 && \
+    conda install -n hunyuan3d21 -c conda-forge libstdcxx-ng
+
+# Torch + Python deps. requirements.txt is copied so dependency installs land in the image.
+RUN pip install --no-cache-dir \
+        torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+        --index-url https://download.pytorch.org/whl/cu124
+
+# pytorch_lightning 1.9.5 (pinned in requirements.txt) imports pkg_resources via
+# `pkg_resources.declare_namespace`, which setuptools >= 80 removed. Pin to <80
+# so the namespace-package API stays available.
+RUN pip install --no-cache-dir "setuptools<80"
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+# Bake the custom_rasterizer CUDA extension into site-packages so the host
+# bind-mount at /workspace/Hunyuan3D-2.1 does not hide it. We build it from a
+# scratch copy outside the eventual mount path; --no-build-isolation lets the
+# setup.py see the conda env's torch instead of failing in an isolated env.
+COPY hy3dpaint/custom_rasterizer /tmp/custom_rasterizer
+RUN cd /tmp/custom_rasterizer && \
+    CUDA_NVCC_FLAGS="-allow-unsupported-compiler" \
+    pip install --no-cache-dir . --no-build-isolation && \
+    rm -rf /tmp/custom_rasterizer
+
+# Source code is bind-mounted at runtime.
+WORKDIR /workspace/Hunyuan3D-2.1
+
+RUN echo "conda activate hunyuan3d21" >> /root/.bashrc
+SHELL ["/bin/bash", "--login", "-c"]
+
+EXPOSE 7860
+CMD ["bash"]
